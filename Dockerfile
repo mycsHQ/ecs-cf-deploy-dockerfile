@@ -7,4 +7,4 @@ RUN apk -uv add --no-cache groff jq less && \
 
 ADD ecs-cf-deploy /usr/local/bin/
 
-CMD ["ecs-cf-deploy"]
+CMD sh

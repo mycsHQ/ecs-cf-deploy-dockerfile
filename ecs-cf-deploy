@@ -1,7 +1,7 @@
 #!/bin/sh
 
-
 VERSION="0.1.0"
+VERBOSE=false
 AWS_CLI=$(which aws)
 AWS_ECS="$AWS_CLI --output json ecs"
 AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-1}
@@ -11,22 +11,34 @@ AWS_ASSUME_ROLE=true
 function usage() {
 cat <<EOM
 -- ecs-cf-deploy --
+
 Simple script to force a deployement of an ECS service based on a clouformation stack.
 
 Required arguments:
-    -c | --cluster-name          Name of Name of cloudformation stack containing the ecs cluster to deploy
-    -s | --service-name          Name of cloudformation stack containing the service to deploy
-    -k | --aws-access-key        AWS Access Key ID. May also be set as environment variable AWS_ACCESS_KEY_ID
-    -s | --aws-secret-key        AWS Secret Access Key. May also be set as environment variable AWS_SECRET_ACCESS_KEY
-    -r | --region                AWS Region Name. May also be set as environment variable AWS_DEFAULT_REGION
-    -p | --profile               AWS Profile to use - If you set this aws-access-key, aws-secret-key and region are needed
+    -c  | --cluster-name          Name of cloudformation stack containing the ecs cluster to deploy
+    -s  | --service-name          Name of cloudformation stack containing the service to deploy
+    -a  | --account               ID of the account to assume the role
+    -ar | --assume-role-name      Name of the role to assume
+
+Optional arguments:
+    -k  | --aws-access-key        AWS Access Key ID. May also be set as environment variable AWS_ACCESS_KEY_ID
+    -s  | --aws-secret-key        AWS Secret Access Key. May also be set as environment variable AWS_SECRET_ACCESS_KEY
+    -r  | --region                AWS Region Name. May also be set as environment variable AWS_DEFAULT_REGION or use the default `eu-west-1`
+    -v  | --verbose               Display debugging information (basically each command)
 
 Requirements:
     aws:  AWS Command Line Interface
     jq:   Command-line JSON processor
 
-EOM
+Example:
+    ecs-cf-deploy -s example-api -c example-cluster -a 1234465780 -ar assumeRoleName -r us-west-1
 
+Author:
+  Nicolas Ritouet <nicolas@mycs.com>
+
+License:
+  MIT (check LICENSE.md)
+EOM
     exit 3
 }
 
@@ -56,7 +68,7 @@ function assumeRoleClean() {
 }
 
 function getClusterName() {
-    export CLUSTER=$($AWS_CLI cloudformation describe-stacks \
+    export ECS_CLUSTER_NAME=$($AWS_CLI cloudformation describe-stacks \
               --stack-name ${ECS_CLUSTER_STACK} \
               --query 'Stacks[0].Outputs[?OutputKey==`Cluster`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
@@ -64,7 +76,7 @@ function getClusterName() {
 }
 
 function getServiceName() {
-    export SERVICE=$($AWS_CLI cloudformation describe-stacks \
+    export ECS_SERVICE_NAME=$($AWS_CLI cloudformation describe-stacks \
               --stack-name ${ECS_SERVICE_STACK} \
               --query 'Stacks[0].Outputs[?OutputKey==`Service`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
@@ -73,8 +85,10 @@ function getServiceName() {
 
 
 function updateService() {
-    echo "Deploying on cluster $CLUSTER service $SERVICE"
-    `$AWS_ECS update-service --cluster $CLUSTER --service $SERVICE --force-new-deployment`
+  if [ $VERBOSE == true ]; then
+    echo "Deploying on cluster '$ECS_CLUSTER_NAME' service '$ECS_SERVICE_NAME'";
+  fi
+    $AWS_ECS update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment
 }
 
 
@@ -97,12 +111,16 @@ function assertRequiredArgumentsSet() {
               AWS_ECS="$AWS_ECS --profile $AWS_PROFILE"
     fi
 
-    if [ $ECS_SERVICE_STACK == false ]; then
+    if [ -z "${ECS_SERVICE_STACK:-}" ]; then
         echo "SERVICE is required. You can pass the value using -s or --service-name"
         exit 5
     fi
-    if [ $ECS_SERVICE_STACK != false ] && [ $ECS_CLUSTER_STACK == false ]; then
+    if [ ! -z "${ECS_SERVICE_STACK:-}" ] && [ -z "${ECS_CLUSTER_STACK:-}" ]; then
         echo "CLUSTER is required. You can pass the value using -c or --cluster"
+        exit 6
+    fi
+    if [ -z "${ACCOUNT_ID:-}" ]; then
+        echo "ACCOUNT is required. You can pass the value using -a or --account"
         exit 6
     fi
 
@@ -130,6 +148,22 @@ do
     key="$1"
 
     case $key in
+        -c|--cluster-name)
+            ECS_CLUSTER_STACK="$2"
+            shift # past argument
+            ;;
+        -s|--service-name)
+            ECS_SERVICE_STACK="$2"
+            shift # past argument
+            ;;
+        -ar|--assume-role-name)
+            CROSS_ACCOUNT_ROLE="$2"
+            shift # past argument
+            ;;
+        -a|--account)
+            ACCOUNT_ID="$2"
+            shift # past argument
+            ;;
         -k|--aws-access-key)
             AWS_ACCESS_KEY_ID="$2"
             shift # past argument
@@ -142,22 +176,6 @@ do
             AWS_DEFAULT_REGION="$2"
             shift # past argument
             ;;
-        -p|--profile)
-            AWS_PROFILE="$2"
-            shift # past argument
-            ;;
-        --aws-instance-profile)
-            echo "--aws-instance-profile is not yet in use"
-            AWS_IAM_ROLE=true
-            ;;
-        -c|--cluster-name)
-            ECS_CLUSTER_STACK="$2"
-            shift
-            ;;
-        -s|--service-name)
-            ECS_SERVICE_STACK="$2"
-            shift # past argument
-            ;;
         -v|--verbose)
             VERBOSE=true
             ;;
@@ -166,6 +184,7 @@ do
             exit 0
             ;;
         *)
+            echo "Found nothing, will display usage and exit"
             usage
             exit 2
         ;;
@@ -184,6 +203,8 @@ if [[ "$AWS_ASSUME_ROLE" != false ]]; then
     assumeRole
 fi
 
+getClusterName
+getServiceName
 updateService
 
 
