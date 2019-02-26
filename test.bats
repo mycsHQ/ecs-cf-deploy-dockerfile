@@ -52,13 +52,16 @@ if [ -z $CIRCLE_SHA1 ]; then
     [ $status -eq 0 ]
   }
 fi
+@test "test call ecs-cf-deploy without args (status=255)" {
+  run ./ecs-cf-deploy
+  echo $output
+  [ $status -eq 4 ]
+}
 @test "test call ecs-cf-deploy without credentials (status=255)" {
   run ./ecs-cf-deploy -s example-api -c example-cluster -a 12345677 -ar assumeRole
   [ $status -eq 255 ]
 }
 @test "test call ecs-cf-deploy without cluster (status=255)" {
   run ./ecs-cf-deploy -s example-api -a 12345677 -ar assumeRole
-  echo $output
-  echo $status
   [ $status -eq 6 ] && [ $output == "CLUSTER is required. You can pass the value using -c or --cluster" ]
 }

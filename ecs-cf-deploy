@@ -4,7 +4,7 @@ VERSION="0.1.0"
 VERBOSE=false
 AWS_CLI=$(which aws)
 AWS_ECS="$AWS_CLI --output json ecs"
-AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-"eu-west-1"}
+AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:="eu-west-1"}
 AWS_ASSUME_ROLE=true
 
 function usage() {
