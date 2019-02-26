@@ -2,12 +2,10 @@ version: 2
 jobs:
   test:
     docker:
-      - image: ubuntu
+      - image: alpine
     steps:
       - checkout
-      - run: ls -al
-      - run: apt-get install software-properties-common -y && add-apt-repository ppa:duggan/bats && apt-get update && apt-get install -y bats
-      - run: bats test.bats
+#      - run: bats test.bats
 
   deploy:
     docker:
@@ -27,3 +25,7 @@ workflows:
       - deploy:
           requires:
             - test
+          filters:
+            branches:
+              only:
+                - master
