@@ -5,7 +5,8 @@ jobs:
       - image: alpine
     steps:
       - checkout
-#      - run: bats test.bats
+      - run: apk add bats
+      - run: bats test.bats
 
   deploy:
     docker:
