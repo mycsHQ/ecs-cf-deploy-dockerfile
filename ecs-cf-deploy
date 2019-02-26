@@ -4,9 +4,8 @@ VERSION="0.1.0"
 VERBOSE=false
 AWS_CLI=$(which aws)
 AWS_ECS="$AWS_CLI --output json ecs"
-AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-1}
+AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:="eu-west-1"}
 AWS_ASSUME_ROLE=true
-
 
 function usage() {
 cat <<EOM
@@ -55,7 +54,7 @@ function require() {
 function assumeRole() {
 
     temp_role=$($AWS_CLI sts assume-role --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${CROSS_ACCOUNT_ROLE}" --role-session-name "$(date +"%s")")
-
+    
     export AWS_ACCESS_KEY_ID=$(echo $temp_role | jq .Credentials.AccessKeyId | xargs)
     export AWS_SECRET_ACCESS_KEY=$(echo $temp_role | jq .Credentials.SecretAccessKey | xargs)
     export AWS_SESSION_TOKEN=$(echo $temp_role | jq .Credentials.SessionToken | xargs)
@@ -73,6 +72,10 @@ function getClusterName() {
               --query 'Stacks[0].Outputs[?OutputKey==`Cluster`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
               )
+  if [ -z $ECS_CLUSTER_NAME ]; then
+    echo "Could not find the service under the '$ECS_CLUSTER_STACK' stack"
+    exit 9
+  fi
 }
 
 function getServiceName() {
@@ -81,6 +84,10 @@ function getServiceName() {
               --query 'Stacks[0].Outputs[?OutputKey==`Service`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
               )
+  if [ -z $ECS_SERVICE_NAME ]; then
+    echo "Could not find the service under the '$ECS_SERVICE_STACK' stack"
+    exit 10
+  fi
 }
 
 
@@ -121,7 +128,11 @@ function assertRequiredArgumentsSet() {
     fi
     if [ -z "${ACCOUNT_ID:-}" ]; then
         echo "ACCOUNT is required. You can pass the value using -a or --account"
-        exit 6
+        exit 7
+    fi
+    if [ -z "${CROSS_ACCOUNT_ROLE:-}" ]; then
+        echo "ROLE_NAME is required. You can pass the value using -ar or --assume-role-name"
+        exit 8
     fi
 
 }
@@ -129,91 +140,91 @@ function assertRequiredArgumentsSet() {
 ######################################################
 # When not being tested, run application as expected #
 ######################################################
-set -o errexit
-set -o pipefail
-set -u
-set -e
+if [ -z "$TEST_ENV" ]; then
+  set -o errexit
+  set -o pipefail
+  set -u
+  set -e
+  # If no args are provided, display usage information
+  if [ $# == 0 ]; then usage; fi
 
-# If no args are provided, display usage information
-if [ $# == 0 ]; then usage; fi
+  # Check for AWS, AWS Command Line Interface
+  require aws
+  # Check for jq, Command-line JSON processor
+  require jq
 
-# Check for AWS, AWS Command Line Interface
-require aws
-# Check for jq, Command-line JSON processor
-require jq
+  # Loop through arguments, two at a time for key and value
+  while [[ $# -gt 0 ]]
+  do
+      key="$1"
 
-# Loop through arguments, two at a time for key and value
-while [[ $# -gt 0 ]]
-do
-    key="$1"
+      case $key in
+          -c|--cluster-name)
+              ECS_CLUSTER_STACK="$2"
+              shift # past argument
+              ;;
+          -s|--service-name)
+              ECS_SERVICE_STACK="$2"
+              shift # past argument
+              ;;
+          -ar|--assume-role-name)
+              CROSS_ACCOUNT_ROLE="$2"
+              shift # past argument
+              ;;
+          -a|--account)
+              ACCOUNT_ID="$2"
+              shift # past argument
+              ;;
+          -k|--aws-access-key)
+              AWS_ACCESS_KEY_ID="$2"
+              shift # past argument
+              ;;
+          -s|--aws-secret-key)
+              AWS_SECRET_ACCESS_KEY="$2"
+              shift # past argument
+              ;;
+          -r|--region)
+              AWS_DEFAULT_REGION="$2"
+              shift # past argument
+              ;;
+          -v|--verbose)
+              VERBOSE=true
+              ;;
+          --version)
+              echo ${VERSION}
+              exit 0
+              ;;
+          *)
+              echo "Found nothing, will display usage and exit"
+              usage
+              exit 2
+          ;;
+      esac
+      shift # past argument or value
+  done
 
-    case $key in
-        -c|--cluster-name)
-            ECS_CLUSTER_STACK="$2"
-            shift # past argument
-            ;;
-        -s|--service-name)
-            ECS_SERVICE_STACK="$2"
-            shift # past argument
-            ;;
-        -ar|--assume-role-name)
-            CROSS_ACCOUNT_ROLE="$2"
-            shift # past argument
-            ;;
-        -a|--account)
-            ACCOUNT_ID="$2"
-            shift # past argument
-            ;;
-        -k|--aws-access-key)
-            AWS_ACCESS_KEY_ID="$2"
-            shift # past argument
-            ;;
-        -s|--aws-secret-key)
-            AWS_SECRET_ACCESS_KEY="$2"
-            shift # past argument
-            ;;
-        -r|--region)
-            AWS_DEFAULT_REGION="$2"
-            shift # past argument
-            ;;
-        -v|--verbose)
-            VERBOSE=true
-            ;;
-        --version)
-            echo ${VERSION}
-            exit 0
-            ;;
-        *)
-            echo "Found nothing, will display usage and exit"
-            usage
-            exit 2
-        ;;
-    esac
-    shift # past argument or value
-done
+  if [ $VERBOSE == true ]; then
+      set -x
+  fi
 
-if [ $VERBOSE == true ]; then
-    set -x
+  # Check that required arguments are provided
+  assertRequiredArgumentsSet
+
+  if [[ "$AWS_ASSUME_ROLE" != false ]]; then
+      assumeRole
+  fi
+
+  getClusterName
+  getServiceName
+  updateService
+
+
+  if [[ "$AWS_ASSUME_ROLE" != false ]]; then
+      assumeRoleClean
+  fi
+
+  exit 0
 fi
-
-# Check that required arguments are provided
-assertRequiredArgumentsSet
-
-if [[ "$AWS_ASSUME_ROLE" != false ]]; then
-    assumeRole
-fi
-
-getClusterName
-getServiceName
-updateService
-
-
-if [[ "$AWS_ASSUME_ROLE" != false ]]; then
-    assumeRoleClean
-fi
-
-exit 0
-
 #############################
 # End application run logic #
 #############################

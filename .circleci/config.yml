@@ -1,0 +1,32 @@
+version: 2
+jobs:
+  test:
+    docker:
+      - image: alpine
+    steps:
+      - checkout
+#      - run: apk add bats
+#      - run: bats test.bats
+
+  deploy:
+    docker:
+      - image: alpine
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run: docker build . -t mycs/ecs-cf-deploy
+      - run: docker tag mycs/ecs-cf-deploy mycs/ecs-cf-deploy:${CIRCLE_BRANCH/master/dev}
+      - run: docker push mycs/ecs-cf-deploy
+
+workflows:
+  version: 2
+  test_and_deploy:
+    jobs:
+      - test
+      - deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - master
