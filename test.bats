@@ -3,9 +3,9 @@
 #BATS_ERROR_STACK_TRACE=()
 
 setup() {
-    # Source in ecs-deploy
+    # Source ecs-cf-deploy
     TEST_ENV=true
-    . "ecs-cf-deploy"
+    . ecs-cf-deploy
 }
 
 @test "check that usage() returns string and exits with status code 3" {
