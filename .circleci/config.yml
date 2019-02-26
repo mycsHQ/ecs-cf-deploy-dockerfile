@@ -6,7 +6,7 @@ jobs:
     steps:
       - checkout
       - run: ls -al
-      - run: apk add bats --update-cache --repository http://dl-3.alpinelinux.org/alpine/edge/community/ --allow-untrusted
+      - run: apk add bash bats --update-cache --repository http://dl-3.alpinelinux.org/alpine/edge/community/ --allow-untrusted
       - run: bats test.bats
 
   deploy:
