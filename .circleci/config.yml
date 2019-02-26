@@ -2,11 +2,11 @@ version: 2
 jobs:
   test:
     docker:
-      - image: alpine
+      - image: ubuntu
     steps:
       - checkout
       - run: ls -al
-      - run: apk add bash bats --update-cache --repository http://dl-3.alpinelinux.org/alpine/edge/community/ --allow-untrusted
+      - run: apt-get install bats
       - run: bats test.bats
 
   deploy:
