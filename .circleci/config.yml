@@ -7,6 +7,7 @@ jobs:
       - checkout
       - run: apk add bats
       - run: bats test.bats
+
   deploy:
     docker:
       - image: alpine
@@ -16,6 +17,7 @@ jobs:
       - run: docker build . -t mycs/ecs-cf-deploy
       - run: docker tag mycs/ecs-cf-deploy mycs/ecs-cf-deploy:${CIRCLE_BRANCH/master/dev}
       - run: docker push mycs/ecs-cf-deploy
+
 workflows:
   version: 2
   test_and_deploy:
