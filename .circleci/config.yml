@@ -14,6 +14,8 @@ jobs:
     steps:
       - checkout
       - setup_remote_docker
+      - run: apk add docker
+      - run: docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}
       - run: docker build . -t mycs/ecs-cf-deploy
       - run: docker tag mycs/ecs-cf-deploy mycs/ecs-cf-deploy:${CIRCLE_BRANCH/master/dev}
       - run: docker push mycs/ecs-cf-deploy
