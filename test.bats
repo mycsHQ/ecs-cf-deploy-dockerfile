@@ -52,10 +52,10 @@ if [ -z $CIRCLE_SHA1 ]; then
     [ $status -eq 0 ]
   }
 fi
-@test "test call ecs-cf-deploy without args (status=255)" {
+@test "test call ecs-cf-deploy without args display the usage(status=3)" {
   run ./ecs-cf-deploy
   echo $output
-  [ $status -eq 4 ]
+  [ $status -eq 3 ]
 }
 @test "test call ecs-cf-deploy without credentials (status=255)" {
   run ./ecs-cf-deploy -s example-api -c example-cluster -a 12345677 -ar assumeRole

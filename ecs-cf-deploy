@@ -4,7 +4,7 @@ VERSION="0.1.0"
 VERBOSE=false
 AWS_CLI=$(which aws)
 AWS_ECS="$AWS_CLI --output json ecs"
-AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:="eu-west-1"}
+AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-1}
 AWS_ASSUME_ROLE=true
 
 function usage() {
@@ -22,7 +22,7 @@ Required arguments:
 Optional arguments:
     -k  | --aws-access-key        AWS Access Key ID. May also be set as environment variable AWS_ACCESS_KEY_ID
     -s  | --aws-secret-key        AWS Secret Access Key. May also be set as environment variable AWS_SECRET_ACCESS_KEY
-    -r  | --region                AWS Region Name. May also be set as environment variable AWS_DEFAULT_REGION or use the default `eu-west-1`
+    -r  | --region                AWS Region Name. May also be set as environment variable AWS_DEFAULT_REGION or use the default eu-west-1
     -v  | --verbose               Display debugging information (basically each command)
 
 Requirements:
@@ -84,6 +84,16 @@ function getServiceName() {
               --query 'Stacks[0].Outputs[?OutputKey==`Service`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
               )
+    if [ $ECS_SERVICE_NAME == $ECS_CLUSTER_NAME ]; then
+      echo "Long ARN bug found: using ServiceArn output to get Service name";
+      temp_servicename=$($AWS_CLI cloudformation describe-stacks \
+              --stack-name ${ECS_SERVICE_STACK} \
+              --query 'Stacks[0].Outputs[?OutputKey==`ServiceArn`].OutputValue' \
+              --output text --region ${AWS_DEFAULT_REGION}
+              )
+      echo $ECS_SERVICE_NAME
+      export ECS_SERVICE_NAME=${temp_servicename##*/}
+    fi
   if [ -z $ECS_SERVICE_NAME ]; then
     echo "Could not find the service under the '$ECS_SERVICE_STACK' stack"
     exit 10
