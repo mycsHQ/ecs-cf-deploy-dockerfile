@@ -88,9 +88,11 @@ function getServiceName() {
       echo "Long ARN bug found: using ServiceArn output to get Service name";
       temp_servicename=$($AWS_CLI cloudformation describe-stacks \
               --stack-name ${ECS_SERVICE_STACK} \
-              --query 'Stacks[0].Outputs[?OutputKey==`ServiceArn`].OutputValue' \
+              --query 'Stacks[0].Outputs[?OutputKey==`Service`].OutputValue' \
               --output text --region ${AWS_DEFAULT_REGION}
               )
+      echo $ECS_SERVICE_STACK
+      echo $temp_servicename
       echo $ECS_SERVICE_NAME
       export ECS_SERVICE_NAME=${temp_servicename##*/}
     fi
