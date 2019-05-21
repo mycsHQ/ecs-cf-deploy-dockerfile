@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# Library of commonly used functions
+
+# Check requirements
+require () {
+    command -v "$1" > /dev/null 2>&1 || {
+        echo "Some of the required software is not installed:"
+        echo "    please install $1" >&2;
+        exit 4;
+    }
+}
+
+# assume aws role
+assumeRole () {
+  echo "Assume role with account $ACCOUNT_ID and role $CROSS_ACCOUNT_ROLE"
+  temp_role=$($AWS_CLI sts assume-role --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${CROSS_ACCOUNT_ROLE}" --role-session-name "$(date +"%s")")
+
+  export AWS_ACCESS_KEY_ID=$(echo $temp_role | jq .Credentials.AccessKeyId | xargs)
+  export AWS_SECRET_ACCESS_KEY=$(echo $temp_role | jq .Credentials.SecretAccessKey | xargs)
+  export AWS_SESSION_TOKEN=$(echo $temp_role | jq .Credentials.SessionToken | xargs)
+}
+
+assumeRoleClean () {
+  unset AWS_ACCESS_KEY_ID
+  unset AWS_SECRET_ACCESS_KEY
+  unset AWS_SESSION_TOKEN
+}
+
+getClusterName () {
+  export ECS_CLUSTER_NAME=$($AWS_CLI cloudformation describe-stacks \
+            --stack-name ${ECS_CLUSTER_STACK} \
+            --query 'Stacks[0].Outputs[?OutputKey==`Cluster`].OutputValue' \
+            --output text --region ${AWS_DEFAULT_REGION}
+            )
+  if [ -z $ECS_CLUSTER_NAME ]; then
+    echo "Could not find the service under the '$ECS_CLUSTER_STACK' stack"
+    exit 9
+  fi
+}
+
+setCommitMsg () {
+  echo "Set commit message"
+
+  rm -rf /tmp/$REPONAME
+  GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" git clone --single-branch --branch $BRANCH --depth=1 git@github.com:mycsHQ/$REPONAME.git /tmp/$REPONAME
+  export COMMIT_MSG=$(git --git-dir=/tmp/$REPONAME/.git log --format=oneline -n 1)
+  echo "Commit message : $COMMIT_MSG"
+}
+
+setTaskDefinition () {
+  echo "Create task definition ..."
+
+  SERVICE_ARN=$(aws cloudformation describe-stacks --stack-name $ECS_SERVICE_STACK --output json | jq '.Stacks[0].Outputs[] | select(.OutputKey | contains("Service"))| .OutputValue' | cut -d\" -f 2)
+  echo "Service ARN : $SERVICE_ARN"
+
+  CURRENT_TASK_DEFINITION_ARN=$(aws ecs describe-services --cluster $ECS_CLUSTER_NAME --service $SERVICE_ARN | jq ".services | .[] | .taskDefinition" | cut -d\" -f 2)
+  echo "Current task definition ARN: $CURRENT_TASK_DEFINITION_ARN"
+
+  export TASK_FAMILY=$REPONAME-$BRANCH
+  echo "Task family : $TASK_FAMILY"
+
+  export DOCKER_IMAGE=mycs/$REPONAME:$BRANCH
+  echo "Docker Image : $DOCKER_IMAGE"
+
+  export RULE="Host:$BRANCH.$REPONAME.api"
+  echo "Rule : $RULE"
+
+  CURRENT_TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition "$CURRENT_TASK_DEFINITION_ARN" | jq '.taskDefinition | { networkMode: .networkMode, family: env.TASK_FAMILY, placementConstraints: .placementConstraints, containerDefinitions: .containerDefinitions, taskRoleArn: .taskRoleArn }')
+  echo $CURRENT_TASK_DEFINITION | jq '.'
+  export NEW_TASK_DEFINITION=$(echo $CURRENT_TASK_DEFINITION | jq '.containerDefinitions[0].image=env.DOCKER_IMAGE | .containerDefinitions[0].logConfiguration.options["awslogs-stream-prefix"]=env.TASK_FAMILY | .containerDefinitions[0].dockerLabels["traefik.frontend.rule"]=env.RULE')
+  echo "Registering following task definition : "
+  echo $NEW_TASK_DEFINITION | jq '.';
+  echo $NEW_TASK_DEFINITION | jq '.' > /tmp/new_task_definition.json
+
+  export TASK_DEFINITION_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/new_task_definition.json | jq ".taskDefinition | .taskDefinitionArn" | cut -d\" -f 2)
+
+  if [[ $TASK_DEFINITION_ARN != "" ]];
+  then
+    echo "Task $TASK_DEFINITION_ARN created"
+  else
+    echo "Task could not be created"
+    exit 1
+  fi
+}
+
+createService () {
+  echo "Create ecs service ... "
+
+  ##Create/Update the service
+  export SERVICE_ARN=$(aws ecs list-services --cluster $ECS_CLUSTER_NAME | jq ".serviceArns[] | select(. | contains(\"$REPONAME-$BRANCH\"))" | cut -d\" -f 2)
+  if [[ $SERVICE_ARN != "" ]]; then
+    echo "Service to update: $($SERVICE_ARN | jq '.')"
+    aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $SERVICE_ARN --force-new-deployment --task-definition $TASK_DEFINITION_ARN
+  else
+    echo "Service to create: $REPONAME-$BRANCH"
+    export SERVICE_ARN=$(aws ecs create-service --cluster $ECS_CLUSTER_NAME --service-name $REPONAME-$BRANCH --task-definition $TASK_DEFINITION_ARN --desired-count $COUNT --launch-type EC2 | jq ".service | .serviceArn")
+  fi
+}
