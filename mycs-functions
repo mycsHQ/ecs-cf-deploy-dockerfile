@@ -96,4 +96,14 @@ createService () {
     echo "Service to create: $REPONAME-$BRANCH"
     export SERVICE_ARN=$(aws ecs create-service --cluster $ECS_CLUSTER_NAME --service-name $REPONAME-$BRANCH --task-definition $TASK_DEFINITION_ARN --desired-count $COUNT --launch-type EC2 | jq ".service | .serviceArn")
   fi
+
+  if echo $BRANCH | grep -E '^(production|staging|master)$'
+  then
+    echo "Service update main branch $BRANCH service..."
+    SERVICE_MAIN_BRANCH_ARN=$(aws cloudformation describe-stacks --stack-name $ECS_SERVICE_STACK --output json | jq '.Stacks[0].Outputs[] | select(.OutputKey | contains("Service"))| .OutputValue' | cut -d\" -f 2)
+    echo "update service $SERVICE_MAIN_BRANCH_ARN"
+    aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $SERVICE_MAIN_BRANCH_ARN --force-new-deployment
+    echo "update done"
+  fi
+
 }
